@@ -16,7 +16,12 @@ namespace BloopsPlatform
 			_physics.Move(Input.GetAxisRaw("Horizontal"));
 			if (Input.GetButtonDown("Jump"))
 			{
-				_physics.Jump();
+				_physics.JumpPress();
+			}
+
+			if (Input.GetButtonUp("Jump"))
+			{
+				_physics.JumpRelease();
 			}
 		}
 	}

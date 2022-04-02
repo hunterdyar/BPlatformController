@@ -428,13 +428,12 @@ MonoBehaviour:
   downwardsGravityModifier: 3
   maxJumps: 12
   jumpForce: 3
-  jumpHeldGravityModifier: 0
+  holdJumpForTime: 0.25
+  jumpHeldGravityModifier: 0.8
   maxHorizontalSpeed: 4
   maxHorizontalAcceleration: 20
   maxHorizontalDeccelToZero: 20
   maxInAirHorizontalAcceleration: 10
-  Grounded: 0
-  Velocity: {x: 0, y: 0}
 --- !u!114 &1112330948
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -22,27 +22,44 @@ namespace BloopsPlatform
         [SerializeField] private float upwardsGravityModifier=1;
         [SerializeField] private float downwardsGravityModifier=1;
         [Header("Jump Settings")]
-        [SerializeField] private int maxJumps;
+        [SerializeField] private int airJumps;
         [SerializeField] private float jumpForce;
+        private bool _pressingJump = false;
+        [SerializeField] private float holdJumpForTime = 0.25f;
         //gravity holding timer...
-        [SerializeField] private float jumpHeldGravityModifier;
+        [SerializeField] private float jumpHeldGravityModifier = 1;
         private int jumps = 0;
         private bool tryJump;
+
+        [Header("Coyote Time")] [SerializeField]
+        private float coyoteTime;
+
+        [SerializeField] private float jumpBuffer;
         [Header("Running Movement Settings")]
         [SerializeField] private float maxHorizontalSpeed;
         [SerializeField] private float maxHorizontalAcceleration = 35;
         [SerializeField] private float maxHorizontalDeccelToZero = 100;
         [SerializeField] private float maxInAirHorizontalAcceleration = 20;
         private Caster downCaster;
-        //
-        public bool Grounded;
-        public Vector2 Velocity;
+        
+        //Timers
+        private float timeSinceGrounded;
+        private float timeSinceLeftGround;
+        private float timeSinceLastJumped;
+        private float timeSincePressedJump;
+        //physics Settings
+        public bool Grounded { get; private set; }
+        public Vector2 Velocity { get; private set; }
         private Vector2 _desiredVelocity;
         private float movementDelta => Velocity.magnitude * Time.deltaTime;
         private float movementFixedDelta => Velocity.magnitude * Time.fixedDeltaTime;
 
         private void Awake()
         {
+            timeSinceGrounded = 0;
+            timeSinceLastJumped = 0;
+            timeSinceLeftGround = 0;
+            _pressingJump = false;
             tryJump = false;
             boundsOffset = movementShape.center;
         }
@@ -68,6 +85,7 @@ namespace BloopsPlatform
         }
         private void Update()
         {
+            TickTimers();
             ApplyDesired();
             ApplyGravity();
             ApplyJump();
@@ -75,22 +93,53 @@ namespace BloopsPlatform
             //move character
             transform.position = transform.position + ((Vector3)Velocity * movementDelta);
             
-            //reset jumps
+
+        }
+
+        private void TickTimers()
+        {
             if (Grounded)
             {
-                jumps = 0;
+                timeSinceGrounded += Time.deltaTime;
+                timeSinceLeftGround = 0;
             }
+            else
+            {
+                timeSinceLeftGround += Time.deltaTime;
+                timeSinceGrounded = 0;
+            }
+
+            timeSinceLastJumped += Time.deltaTime;
+            timeSincePressedJump += Time.deltaTime;
         }
 
         private void ApplyJump()
         {
-            if (tryJump && jumps < maxJumps)
+            //press jump button, or pressed within jumpBuffer window
+            //|| (Grounded && _pressingJump && timeSincePressedJump < jumpBuffer)
+            if (tryJump )
             {
-                //
-                jumps++;
+                //on the ground, or in the air with jumps, or in the air within coyote time.
+                //|| (!tryJump && !Grounded && _pressingJump && timeSinceLeftGround < coyoteTime)
+                if (Grounded || jumps < airJumps + 1 )
+                {
+                    //jump tracking variables
+                    jumps++;
+                    tryJump = false;
+                    timeSinceLastJumped = 0;
+                    Grounded = false; //this will get reset in collisions, but lets be optimistic for jump resetting.
+
+                    //jump
+                    Velocity = new Vector2(Velocity.x, jumpForce);
+                }
+
+            }
+            
+
+            if (Grounded)
+            {
+                jumps = 0;
                 tryJump = false;
-                //jump
-                Velocity.y = jumpForce;
             }
         }
 
@@ -109,14 +158,23 @@ namespace BloopsPlatform
             }
             
             float delta = acceleration * Time.deltaTime;
-            Velocity.x = Mathf.MoveTowards(Velocity.x, _desiredVelocity.x, delta);
-            // //Vertical
-            // Velocity.y = _desiredVelocity.y;
+            
+            //Set horizontal component
+            Velocity= new Vector2(Mathf.MoveTowards(Velocity.x, _desiredVelocity.x, delta),Velocity.y);
+
         }
 
-        public void Jump()
+        public void JumpPress()
         {
+            timeSincePressedJump = 0;
             tryJump = true;
+            _pressingJump = true;
+        }
+
+        public void JumpRelease()
+        {
+            _pressingJump = false;
+            tryJump = false;//prevents coyote time if your press is faster than coyote time.
         }
         private void LateUpdate()
         {
@@ -135,6 +193,11 @@ namespace BloopsPlatform
             if (Velocity.y > 0)
             {
                 g *= upwardsGravityModifier;
+                //
+                if (_pressingJump && timeSinceLastJumped < holdJumpForTime)
+                {
+                    g *= jumpHeldGravityModifier;
+                }
             }
             else if(Velocity.y < 0)
             {
@@ -151,9 +214,9 @@ namespace BloopsPlatform
         void CastGroundFTick()
         {
             var dir = Vector2.down;
-            Grounded = downCaster.ArrayRaycast(dir, movementShape.BottomLeft()+-dir*skinWidth, movementShape.BottomRight()+ -dir * skinWidth, movementFixedDelta+skinWidth);
+            bool down = downCaster.ArrayRaycast(dir, movementShape.BottomLeft()+-dir*skinWidth, movementShape.BottomRight()+ -dir * skinWidth, movementFixedDelta+skinWidth);
             
-            if (Grounded && Velocity.y < 0)
+            if (down && Velocity.y < 0)
             {
                 //Snap to hit point
                 float top = downCaster.ResultsPointMaxY;
@@ -162,6 +225,13 @@ namespace BloopsPlatform
                 
                 //stop moving vertically.
                 Velocity = new Vector2(Velocity.x, 0);
+            }
+            
+            //if we have an upwards gravity, we are not grounded, even if collisions.
+            //we might be on an upwards moving platform, but i haven't coded those yet. We will have some "platformVelocity" that we track and apply to ourselves when we are in contact.
+            if (down && Velocity.y <= 0)
+            {
+                Grounded = true;
             }
         }
 
