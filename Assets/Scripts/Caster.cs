@@ -17,21 +17,25 @@ namespace BloopsPlatform
 		private readonly int _defaultNumberCasts;
 		private readonly LayerMask _layerMask;
 		public RaycastHit2D[] Results => _results;
+		public float Friction = 1;
 		readonly RaycastHit2D[] _results;
 		private readonly Vector2[] _normals;
+		private float _defaultFriction;
 		public Vector2 Normal { get; private set; }
 		public float ResultsPointMaxY { get; private set; }
 		public float ResultsPointMinY { get; private set; }
 		public float ResultsPointMaxX { get; private set; }
 		public float ResultsPointMinX { get; private set; }
 		public bool ResultsSinceReset { get; private set; }
-		public Caster(LayerMask layerMask, int defaultNumberCasts)
+		
+		public Caster(LayerMask layerMask, int defaultNumberCasts, float defaultFriction = 1)
 		{
 			ResultsSinceReset = false;
 			_layerMask = layerMask;
 			_defaultNumberCasts = defaultNumberCasts;
 			_results = new RaycastHit2D[defaultNumberCasts];
 			_normals = new Vector2[defaultNumberCasts];
+			_defaultFriction = defaultFriction;
 		}
 		
 		//
@@ -60,6 +64,15 @@ namespace BloopsPlatform
 				{
 					_normals[i] = _results[i].normal;
 					Normal = _normals[i];//i cant think of a good way to do average of only some of the rays collide, so lets just hope that the last array (the TO) has the right normal? hmmm
+					if (_results[i].collider.sharedMaterial == null)
+					{
+						Friction = _defaultFriction;//override their default with our own (1, not 0.4f)
+					}
+					else
+					{
+						Friction = _results[i].collider.friction;
+					}
+
 					hitAnything = true;
 					CompareMinMax(_results[i].point);
 				}

@@ -34,7 +34,7 @@ namespace BloopsPlatform
         private int jumps = 0;
         private bool tryJump;
         [Header("Wall Cling")] [SerializeField] private bool canWallJump;
-
+        [SerializeField] private float wallJumpForceModifier = 1;
         [SerializeField][Range(0,1)]
         float wallClingingGravityModifier = 1;
         private bool wallClingingLeft;
@@ -152,24 +152,26 @@ namespace BloopsPlatform
             //|| (Grounded && _pressingJump && timeSincePressedJump < jumpBuffer)
             if (tryJump)
             {
-                if (wallClingingLeft)
-                {
-                    jumps = 1;//reset to 0, as if grounded, then +1
-                    tryJump = false;
-                    timeSinceLastJumped = 0;
-                    Grounded = false;
-                    var jumpVector = Vector2.one.normalized*jumpForce;//do the hard math for me. This can be calculated ahead of time. its like .707 or such, some trig.
-                    Velocity = new Vector2(jumpVector.x, jumpVector.y);
-                }else if (wallClingingRight)
-                {
-                    jumps = 1;//reset to 0, then +1
-                    tryJump = false;
-                    timeSinceLastJumped = 0;
-                    Grounded = false;
-                    var jumpVector = new Vector2(-1,1).normalized * jumpForce;
-                    Velocity = new Vector2(jumpVector.x, jumpVector.y);
-                }//else...
-                
+                if(canWallJump && !Grounded){
+                    if (wallClingingLeft)
+                    {
+                        jumps = 1;//reset to 0, as if grounded, then +1
+                        tryJump = false;
+                        timeSinceLastJumped = 0;
+                        Grounded = false;
+                        //todo: Give the user control over this. One vector for fixed angle, one for modifier on jumpForce.
+                        var jumpVector = Vector2.one.normalized*jumpForce*wallJumpForceModifier;//do the hard math for me. This can be calculated ahead of time. its like .707 or such, some trig.
+                        Velocity = new Vector2(jumpVector.x, jumpVector.y);
+                    }else if (wallClingingRight)
+                    {
+                        jumps = 1;//reset to 0, then +1
+                        tryJump = false;
+                        timeSinceLastJumped = 0;
+                        Grounded = false;
+                        var jumpVector = new Vector2(-1,1).normalized * jumpForce * wallJumpForceModifier;
+                        Velocity = new Vector2(jumpVector.x, jumpVector.y);
+                    }//else...
+                }
                 //on the ground, or in the air with jumps, or in the air within coyote time.
                 //|| (!tryJump && !Grounded && _pressingJump && timeSinceLeftGround < coyoteTime)
                 if (Grounded || jumps < airJumps + 1 )
@@ -218,7 +220,7 @@ namespace BloopsPlatform
             float acceleration;
             if (Grounded)
             {
-                acceleration = _desiredVelocity.x == 0 ? maxHorizontalDeccelToZero : maxHorizontalAcceleration;
+                acceleration = _desiredVelocity.x == 0 ? maxHorizontalDeccelToZero : maxHorizontalAcceleration; 
             }
             else
             {
@@ -226,6 +228,10 @@ namespace BloopsPlatform
             }
             
             float delta = acceleration * Time.deltaTime;
+            
+            //Todo: Factor in friction
+            //we can get friction from downCaster.Friction, which will be recently set if grounded is true
+            
             
             //Set horizontal component
             Velocity= new Vector2(Mathf.MoveTowards(Velocity.x, _desiredVelocity.x, delta),Velocity.y);
@@ -274,7 +280,10 @@ namespace BloopsPlatform
 
                 if (wallClingingLeft || wallClingingRight)
                 {
-                    g *= wallClingingGravityModifier;
+                    //Get wall friction.
+                    float friction = wallClingingLeft ? leftCaster.Friction : rightCaster.Friction;
+                    //when no friction, we don't change g. When 1 friction, we use wall cling modifier.
+                    g *= Mathf.Lerp(1,wallClingingGravityModifier,friction);
                 }
                 else
                 {
