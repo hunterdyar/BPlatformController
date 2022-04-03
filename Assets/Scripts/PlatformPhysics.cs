@@ -12,6 +12,7 @@ namespace BloopsPlatform
 {
     public class PlatformPhysics : MonoBehaviour
     {
+        #region Fields
         private Vector2 boundsOffset;
         [Header("Collision Settings")]
         [SerializeField] private Bounds movementShape;
@@ -63,8 +64,15 @@ namespace BloopsPlatform
         public bool Grounded { get; private set; }
         public Vector2 Velocity { get; private set; }
         private Vector2 _desiredVelocity;
-        private float movementDelta => Velocity.magnitude * Time.deltaTime;
-        private float movementFixedDelta => Velocity.magnitude * Time.fixedDeltaTime;
+        private bool wallClinging => wallClingingLeft || wallClingingRight;
+        private float CurrentGroundFriction => Grounded ? downCaster.Friction : 0;
+
+        private IMovingPlatform _movingPlatform;
+        private Vector2 adoptedVel = Vector2.zero;
+        private Vector2 RealVelocity => adoptedVel + Velocity;
+        private bool _cantGoFurtherRightThisFrame;//horizontal hit tracking so we dont pickup movingPlatform velocities and override collisions.
+        private bool _cantGoFurtherLeftThisFrame;
+        #endregion
 
         private void Awake()
         {
@@ -73,6 +81,9 @@ namespace BloopsPlatform
                 //Cant actually be 0!
                 lipHeight = Mathf.Epsilon;
             }
+
+            adoptedVel = Vector2.zero;
+            _movingPlatform = null;
             timeSinceGrounded = 0;
             timeSinceLastJumped = 0;
             timeSinceLeftGround = 0;
@@ -98,26 +109,85 @@ namespace BloopsPlatform
             ApplyDesired();
             ApplyGravity();
             ApplyJump();
+            _movingPlatform = null; //set throughout collisions
+            adoptedVel = Vector2.zero; //reset and add throughout collisions
             CastCeilingFTick();
             CastHorizontalFTick();
             CastGroundFTick();
             //move character
-            transform.position = transform.position + ((Vector3)Velocity * movementDelta);
+            
+            var delta = (Vector3)(RealVelocity * Time.deltaTime);
+            transform.position = transform.position + delta;
         }
 
-        public void SetVelocity(Vector2 vel)
+        #region VelocityHelpers
+
+        private void SetVelocity(Vector2 vel)
         {
-            _desiredVelocity = vel;
+            Velocity = vel;
         }
+
+        private void SetVelocityRelative(Vector2 velChange)
+        {
+            Velocity = Velocity + velChange;
+        }
+
+        private void SetVerticalVelocity(float vy)
+        {
+            Velocity = new Vector2(Velocity.x, vy);
+        }
+
+        private void SetHorizontalVelocity(float vx)
+        {
+            Velocity = new Vector2(vx,Velocity.y);
+        }
+
+        private Vector2 AdoptedVelocity()
+        {
+            if(Grounded && wallClinging)
+            {
+                if (downCaster.MovingPlatform != null && (leftCaster.MovingPlatform != null || rightCaster.MovingPlatform != null))
+                {
+                    if (downCaster.MovingPlatform == leftCaster.MovingPlatform || downCaster.MovingPlatform == rightCaster.MovingPlatform)
+                    {
+                        return downCaster.MovingPlatform.GetVelocity();
+                    }
+                    else
+                    {
+                        Debug.LogWarning("Grounded and wall clinging on two moving platforms? This case is not explicitly handled.");
+                    }
+                }
+            }
+            
+            if (Grounded)
+            {
+                return downCaster.MovingPlatform != null ? downCaster.MovingPlatform.GetVelocity() : Vector2.zero;
+            }else if (!Grounded && wallClingingLeft)
+            {
+                return leftCaster.MovingPlatform?.GetVelocity() ?? Vector2.zero;
+            }
+            else if (!Grounded && wallClingingRight)
+            {
+                return leftCaster.MovingPlatform?.GetVelocity() ?? Vector2.zero;
+            }
+
+            
+            //else
+            return Vector2.zero;
+        }
+        
+        #endregion
 
         public void Move(float horizontal)
         {
-            _desiredVelocity = new Vector2(horizontal*maxHorizontalSpeed,_desiredVelocity.y);
+            
+            _desiredVelocity = new Vector2(horizontal*Mathf.Max(maxHorizontalSpeed-CurrentGroundFriction),_desiredVelocity.y);
         }
+
 
         public void AddForce(Vector2 force)
         {
-            Velocity = Velocity + force;
+            SetVelocityRelative(force);
         }
 
         private void TickTimers()
@@ -133,7 +203,7 @@ namespace BloopsPlatform
                 timeSinceGrounded = 0;
             }
 
-            if (wallClingingLeft || wallClingingRight)
+            if (wallClinging)
             {
                 timeWallClinging += Time.deltaTime;
             }
@@ -143,7 +213,7 @@ namespace BloopsPlatform
             }
 
                timeSinceLastJumped += Time.deltaTime;
-            timeSincePressedJump += Time.deltaTime;
+                timeSincePressedJump += Time.deltaTime;
         }
 
         private void ApplyJump()
@@ -161,7 +231,7 @@ namespace BloopsPlatform
                         Grounded = false;
                         //todo: Give the user control over this. One vector for fixed angle, one for modifier on jumpForce.
                         var jumpVector = Vector2.one.normalized*jumpForce*wallJumpForceModifier;//do the hard math for me. This can be calculated ahead of time. its like .707 or such, some trig.
-                        Velocity = new Vector2(jumpVector.x, jumpVector.y);
+                       SetVelocity(new Vector2(jumpVector.x, jumpVector.y));
                     }else if (wallClingingRight)
                     {
                         jumps = 1;//reset to 0, then +1
@@ -169,7 +239,7 @@ namespace BloopsPlatform
                         timeSinceLastJumped = 0;
                         Grounded = false;
                         var jumpVector = new Vector2(-1,1).normalized * jumpForce * wallJumpForceModifier;
-                        Velocity = new Vector2(jumpVector.x, jumpVector.y);
+                        SetVelocity(new Vector2(jumpVector.x, jumpVector.y));
                     }//else...
                 }
                 //on the ground, or in the air with jumps, or in the air within coyote time.
@@ -183,7 +253,7 @@ namespace BloopsPlatform
                     Grounded = false; //this will get reset in collisions, but lets be optimistic for jump resetting.
 
                     //jump
-                    Velocity = new Vector2(Velocity.x, jumpForce);
+                    SetVerticalVelocity(jumpForce);
                 }
 
             }
@@ -234,7 +304,7 @@ namespace BloopsPlatform
             
             
             //Set horizontal component
-            Velocity= new Vector2(Mathf.MoveTowards(Velocity.x, _desiredVelocity.x, delta),Velocity.y);
+            SetHorizontalVelocity(Mathf.MoveTowards(Velocity.x, _desiredVelocity.x, delta));
 
         }
 
@@ -258,7 +328,7 @@ namespace BloopsPlatform
 
         private void ApplyGravity()
         {
-            Velocity = Velocity + (GetGravity() * Time.deltaTime);
+            SetVelocityRelative(GetGravity() * Time.deltaTime);
         }
 
         private Vector2 GetGravity()
@@ -278,7 +348,7 @@ namespace BloopsPlatform
 
                 g *= downwardsGravityModifier;
 
-                if (wallClingingLeft || wallClingingRight)
+                if (wallClinging)
                 {
                     //Get wall friction.
                     float friction = wallClingingLeft ? leftCaster.Friction : rightCaster.Friction;
@@ -300,54 +370,101 @@ namespace BloopsPlatform
             movementShape.center = transform.position + (Vector3)boundsOffset;
         }
 
+        #region Collisions
+
+        
+
         void CastHorizontalFTick()
         {
+            _cantGoFurtherRightThisFrame = false;
+            _cantGoFurtherLeftThisFrame = false;
             var dir = Vector2.right;
             //todo: cache these
             var lipDown = Vector2.down * lipHeight;
             var lipUp = Vector2.up * lipHeight;
             
             //From top to bottom, so the last raycast is the Normal that we can grab for going up a slope.
-            bool right = rightCaster.ArrayRaycast(dir, movementShape.TopRight() + -dir * skinWidth+lipDown, movementShape.BottomRight() + -dir * skinWidth + lipUp, movementFixedDelta + skinWidth);
-
+            bool right = rightCaster.ArrayRaycast(dir, movementShape.TopRight() + -dir * skinWidth+lipDown, movementShape.BottomRight() + -dir * skinWidth + lipUp, Mathf.Max(RealVelocity.x,0) * Time.deltaTime + skinWidth);
             if (!right)
             {
                 wallClingingRight = false;
             }
+            else
+            {
+                _cantGoFurtherRightThisFrame = true;
+            }
             
-            
-            if (right && Velocity.x > 0)
+            if (right && (Velocity.x > 0 || RealVelocity.x > 0))
             {
                 //Todo: check for lips with rightCaster.Results
                 //Snap out from overlap to rest at hit point
                 float leftPoint = rightCaster.ResultsPointMinX;
-                
-                //Shift left.
-                transform.position = new Vector3(leftPoint - movementShape.extents.x, transform.position.y,transform.position.z);
+
+                //Shift left out of wall.
+                transform.position = new Vector3(leftPoint - movementShape.extents.x, transform.position.y, transform.position.z);
                 UpdateBounds();
-                //stop moving vertically.
                 WallCling();
+                SetHorizontalVelocity(0);
+                var hitWallVel = rightCaster.MovingPlatform?.GetVelocity() ?? Vector2.zero;
+                //the wall is moving towards us. It should push us, which it can do by moving us by its velocity.
+                if (hitWallVel.x < 0){
+                    adoptedVel = new Vector2(hitWallVel.x, adoptedVel.y); //we cant move horizontally, because of horizontal collision, but we can still adopt a moving platforms velocity.
+                }
+                else//the wall is moving away from us.
+                {
+                    if (wallClinging)
+                    {
+                        adoptedVel = new Vector2(hitWallVel.x, adoptedVel.y); //we cant move horizontally, because of horizontal collision, but we can still adopt a moving platforms velocity.
+
+                    }
+                    else
+                    {
+                        adoptedVel = new Vector2(0, adoptedVel.x);
+                    }
+                }
+
+            //todo: set movingPlatform correctly
             }
+
             //We copy and paste the above and below, because we want to be able to jump up and have a moving platform get us from behind, so the code will need all directions.
             dir = Vector2.left;
-            bool left = leftCaster.ArrayRaycast(dir, movementShape.TopLeft() + -dir * skinWidth + lipDown, movementShape.BottomLeft() + -dir * skinWidth + lipUp, movementFixedDelta + skinWidth);
+            bool left = leftCaster.ArrayRaycast(dir, movementShape.TopLeft() + -dir * skinWidth + lipDown, movementShape.BottomLeft() + -dir * skinWidth + lipUp, Mathf.Min(RealVelocity.x,0)*Time.deltaTime + skinWidth);
 
             if (!left)
             {
                 wallClingingLeft = false;
             }
-            
-            if (left && Velocity.x < 0)
+            else
             {
-                //Todo: check for lips with rightCaster.Results
-                //Snap out from overlap to rest at hit point
+                _cantGoFurtherLeftThisFrame = true;
+            }
+            
+            if (left && (Velocity.x < 0 || RealVelocity.x < 0))
+            {
                 float rightPoint = leftCaster.ResultsPointMaxX;
-
-                //Shift left.
                 transform.position = new Vector3(rightPoint + movementShape.extents.x, transform.position.y, transform.position.z);
                 UpdateBounds();
-                //stop moving vertically. WallCling.
                 WallCling();
+                SetHorizontalVelocity(0);//Stop horizontal Movement
+                var hitWallVel = leftCaster.MovingPlatform?.GetVelocity() ?? Vector2.zero;
+                //Get pushed by wall.
+                if (hitWallVel.x > 0)
+                {
+                    adoptedVel = new Vector2(hitWallVel.x, adoptedVel.y); 
+                }
+                else
+                {
+                    if (wallClinging)
+                    {
+                        adoptedVel = new Vector2(hitWallVel.x, adoptedVel.y);
+
+                    }
+                    else
+                    {
+                        adoptedVel = new Vector2(0, adoptedVel.x);
+                    }
+                }
+
             }
             
             //todo: Deal with slopes.
@@ -355,22 +472,43 @@ namespace BloopsPlatform
 
         void CastGroundFTick()
         {
+            //Todo: Calculate the from/to dependent on current desiredDirection/velocity. 
+            //This will mean that the last, saved, MovingPlatform will be your 'front foot' for stepping onto movingPlatforms
+            
             var dir = Vector2.down;
             var bottomLeft = movementShape.BottomLeft()+-dir*skinWidth + Vector2.right* verticalCastPadding;
             var bottomRight = movementShape.BottomRight()+ -dir * skinWidth - Vector2.right* verticalCastPadding;
-            bool down = downCaster.ArrayRaycast(dir, bottomLeft, bottomRight, movementFixedDelta+skinWidth);
+            bool down = downCaster.ArrayRaycast(dir, bottomLeft, bottomRight, (Mathf.Max(RealVelocity.y,0) * Time.deltaTime) +skinWidth);
             
             if (down && Velocity.y < 0)
             {
                 float overlapPercentage = Mathf.Abs(Vector2.Dot(downCaster.Normal, Vector2.up));//1 if aligned, 0 if orthogonal.
-                //Snap out from overlap to rest at hit point
                 float top = downCaster.ResultsPointMaxY;
                 // top = top * overlapPercentage;//todo: this is broken, we want to do it to the delta, not the absolute position
                 transform.position = new Vector3(transform.position.x, top+movementShape.extents.y, transform.position.z);
                 UpdateBounds();
 
                 //stop moving vertically.
-                Velocity = new Vector2(Velocity.x, 0);
+                SetVerticalVelocity(0);
+                //adopt velocity of platform.
+                
+                //Wait, we don't want to do this if we hit something horizontal.
+                var groundAdopted = downCaster.MovingPlatform?.GetVelocity() ?? Vector2.zero;
+                if (groundAdopted.x > 0 && !_cantGoFurtherRightThisFrame)
+                {
+                    adoptedVel = groundAdopted;
+
+                }else if (groundAdopted.x < 0 && !_cantGoFurtherLeftThisFrame)
+                {
+                    adoptedVel = groundAdopted;
+                }
+                else
+                {
+                    //we don't have control over it moving horizontally anymore, its being pushed or pulled. or zero.
+                    adoptedVel = new Vector2(adoptedVel.x, groundAdopted.y);
+                }
+
+                _movingPlatform = downCaster.MovingPlatform;
             }
             
             //if we have an upwards gravity, we are not grounded, even if collisions.
@@ -386,7 +524,7 @@ namespace BloopsPlatform
             var dir = Vector2.up;
             var topLeft = movementShape.TopLeft() + -dir * skinWidth + Vector2.right * verticalCastPadding;
             var topRight = movementShape.TopRight() + -dir * skinWidth - Vector2.right * verticalCastPadding;
-            bool up = downCaster.ArrayRaycast(dir, topLeft, topRight, movementFixedDelta + skinWidth);
+            bool up = downCaster.ArrayRaycast(dir, topLeft, topRight, (Mathf.Max(0,RealVelocity.y) * Time.deltaTime + skinWidth));
 
             if (up && Velocity.y > 0)
             {
@@ -402,15 +540,16 @@ namespace BloopsPlatform
                 UpdateBounds();//todo: wrap this stuff (for all 3 cast functions) in a Translate function
 
                 //stop moving vertically
-                Velocity = new Vector2(Velocity.x, 0);
-                
+                SetVerticalVelocity(0);
             }
         }
+
+        #endregion
 
         void WallCling()
         {
             //Do nothing! todo: something!
-            Velocity = new Vector2(0, Velocity.y);
+            SetHorizontalVelocity(0);
 
             
             if (_desiredVelocity.x < -Mathf.Epsilon)
@@ -428,8 +567,9 @@ namespace BloopsPlatform
                 wallClingingLeft = false;
                 wallClingingRight = false;
             }
-
         }
+
+        #region DebugStuff
         void OnDrawGizmosSelected()
         {
             var topLeft = new Vector3(movementShape.min.x, movementShape.max.y, transform.position.z);
@@ -442,5 +582,8 @@ namespace BloopsPlatform
             Gizmos.DrawLine(topRight, botRight);
             Gizmos.DrawLine(botLeft, botRight);
         }
+
+        #endregion
+
     }
 }

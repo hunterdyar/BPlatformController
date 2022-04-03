@@ -21,6 +21,7 @@ namespace BloopsPlatform
 		readonly RaycastHit2D[] _results;
 		private readonly Vector2[] _normals;
 		private float _defaultFriction;
+		public IMovingPlatform MovingPlatform { get; private set; }
 		public Vector2 Normal { get; private set; }
 		public float ResultsPointMaxY { get; private set; }
 		public float ResultsPointMinY { get; private set; }
@@ -30,6 +31,7 @@ namespace BloopsPlatform
 		
 		public Caster(LayerMask layerMask, int defaultNumberCasts, float defaultFriction = 1)
 		{
+			MovingPlatform = null;
 			ResultsSinceReset = false;
 			_layerMask = layerMask;
 			_defaultNumberCasts = defaultNumberCasts;
@@ -73,6 +75,13 @@ namespace BloopsPlatform
 						Friction = _results[i].collider.friction;
 					}
 
+					//Only doing both edges will handle most cases at a huge computation save.
+					if (i == 0 || i == _defaultNumberCasts - 1)
+					{
+						MovingPlatform = _results[i].collider.GetComponent<IMovingPlatform>();
+					}
+
+					//
 					hitAnything = true;
 					CompareMinMax(_results[i].point);
 				}
@@ -123,6 +132,7 @@ namespace BloopsPlatform
 
 		void ResetResultData()
 		{
+			MovingPlatform = null;
 			_normals.Initialize();//sets all to 0... ? calls a parameterless constructor on each element of a value-type array.
 			ResultsSinceReset = false;
 			ResultsPointMaxY = Mathf.NegativeInfinity;
