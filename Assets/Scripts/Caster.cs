@@ -74,6 +74,16 @@ namespace BloopsPlatform
 			return hitAnything;
 		}
 
+		public RaycastHit2D GetFromHit()
+		{
+			return _results[0];
+		}
+
+		public RaycastHit2D GetToHit()
+		{
+			return _results[^0];//last item. Thanks c# 8 for the ^ syntax.
+		}
+
 		private void CompareMinMax(Vector2 point)
 		{
 			if (point.x > ResultsPointMaxX)
