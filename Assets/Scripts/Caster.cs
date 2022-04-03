@@ -18,6 +18,8 @@ namespace BloopsPlatform
 		private readonly LayerMask _layerMask;
 		public RaycastHit2D[] Results => _results;
 		readonly RaycastHit2D[] _results;
+		private readonly Vector2[] _normals;
+		public Vector2 Normal { get; private set; }
 		public float ResultsPointMaxY { get; private set; }
 		public float ResultsPointMinY { get; private set; }
 		public float ResultsPointMaxX { get; private set; }
@@ -29,6 +31,7 @@ namespace BloopsPlatform
 			_layerMask = layerMask;
 			_defaultNumberCasts = defaultNumberCasts;
 			_results = new RaycastHit2D[defaultNumberCasts];
+			_normals = new Vector2[defaultNumberCasts];
 		}
 		
 		//
@@ -55,6 +58,8 @@ namespace BloopsPlatform
 
 				if (_results[i].collider != null)
 				{
+					_normals[i] = _results[i].normal;
+					Normal = _normals[i];//i cant think of a good way to do average of only some of the rays collide, so lets just hope that the last array (the TO) has the right normal? hmmm
 					hitAnything = true;
 					CompareMinMax(_results[i].point);
 				}
@@ -95,6 +100,7 @@ namespace BloopsPlatform
 
 		void ResetResultData()
 		{
+			_normals.Initialize();//sets all to 0... ? calls a parameterless constructor on each element of a value-type array.
 			ResultsSinceReset = false;
 			ResultsPointMaxY = Mathf.NegativeInfinity;
 			ResultsPointMinY = Mathf.Infinity;

@@ -17,6 +17,7 @@ namespace BloopsPlatform
         [SerializeField] private Bounds movementShape;
         [SerializeField] private LayerMask layerMask;
         [SerializeField] private float skinWidth;
+        [SerializeField] private float lipHeight;
         [Header("Gravity Settings")]
         [SerializeField] private float baseGravity = -9.81f;
         [SerializeField] private float upwardsGravityModifier=1;
@@ -41,7 +42,9 @@ namespace BloopsPlatform
         [SerializeField] private float maxHorizontalDeccelToZero = 100;
         [SerializeField] private float maxInAirHorizontalAcceleration = 20;
         private Caster downCaster;
-        
+        private Caster rightCaster;
+        private Caster leftCaster;
+        private Caster upCaster;
         //Timers
         private float timeSinceGrounded;
         private float timeSinceLeftGround;
@@ -56,17 +59,21 @@ namespace BloopsPlatform
 
         private void Awake()
         {
+            if (lipHeight == 0)
+            {
+                //Cant actually be 0!
+                lipHeight = Mathf.Epsilon;
+            }
             timeSinceGrounded = 0;
             timeSinceLastJumped = 0;
             timeSinceLeftGround = 0;
             _pressingJump = false;
             tryJump = false;
             boundsOffset = movementShape.center;
-        }
-
-        void Start()
-        {
             downCaster = new Caster(layerMask, 10);
+            upCaster = new Caster(layerMask, 10);
+            leftCaster = new Caster(layerMask, 10);
+            rightCaster = new Caster(layerMask, 10);
         }
 
         public void SetVelocity(Vector2 vel)
@@ -89,6 +96,7 @@ namespace BloopsPlatform
             ApplyDesired();
             ApplyGravity();
             ApplyJump();
+            CastHorizontalFTick();
             CastGroundFTick();
             //move character
             transform.position = transform.position + ((Vector3)Velocity * movementDelta);
@@ -218,9 +226,10 @@ namespace BloopsPlatform
             
             if (down && Velocity.y < 0)
             {
-                //Snap to hit point
+                float overlapPercentage = Mathf.Abs(Vector2.Dot(downCaster.Normal, Vector2.up));//1 if aligned, 0 if orthogonal.
+                //Snap out from overlap to rest at hit point
                 float top = downCaster.ResultsPointMaxY;
-                float difference = top - transform.position.y;
+                top = top * overlapPercentage;
                 transform.position = new Vector3(transform.position.x, top+movementShape.extents.y, transform.position.z);
                 
                 //stop moving vertically.
@@ -233,6 +242,49 @@ namespace BloopsPlatform
             {
                 Grounded = true;
             }
+        }
+
+        void CastHorizontalFTick()
+        {
+            var dir = Vector2.right;
+            //todo: cache these
+            var lipDown = Vector2.down * lipHeight;
+            var lipUp = Vector2.up * lipHeight;
+            
+            //From top to bottom, so the last raycast is the Normal that we can grab for going up a slope.
+            bool right = rightCaster.ArrayRaycast(dir, movementShape.TopRight() + -dir * skinWidth+lipDown, movementShape.BottomRight() + -dir * skinWidth + lipUp, movementFixedDelta + skinWidth);
+
+            if (right && Velocity.x > 0)
+            {
+                //Todo: check for lips with rightCaster.Results
+                //Snap out from overlap to rest at hit point
+                float leftPoint = rightCaster.ResultsPointMinX;
+                
+                //Shift left.
+                transform.position = new Vector3(leftPoint - movementShape.extents.x, transform.position.y,transform.position.z);
+
+                //stop moving vertically.
+                //todo wallCling
+                Velocity = new Vector2(Velocity.x, 0);
+            }
+            //We copy and paste the above and below, because we want to be able to jump up and have a moving platform get us from behind, so the code will need all directions.
+            dir = Vector2.left;
+            bool left = leftCaster.ArrayRaycast(dir, movementShape.TopLeft() + -dir * skinWidth + lipDown, movementShape.BottomLeft() + -dir * skinWidth + lipUp, movementFixedDelta + skinWidth);
+
+            if (left && Velocity.x < 0)
+            {
+                //Todo: check for lips with rightCaster.Results
+                //Snap out from overlap to rest at hit point
+                float rightPoint = leftCaster.ResultsPointMaxX;
+
+                //Shift left.
+                transform.position = new Vector3(rightPoint + movementShape.extents.x, transform.position.y, transform.position.z);
+
+                //stop moving vertically. WallCling.
+                Velocity = new Vector2(Velocity.x, 0);
+            }
+            
+            //todo: Deal with slopes.
         }
 
         void OnDrawGizmosSelected()
