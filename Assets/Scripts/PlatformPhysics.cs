@@ -110,12 +110,12 @@ namespace BloopsPlatform
             ApplyGravity();
             ApplyJump();
             _movingPlatform = null; //set throughout collisions
-            adoptedVel = Vector2.zero; //reset and add throughout collisions
+            adoptedVel = Vector2.zero; //reset throughout collisions
             CastCeilingFTick();
             CastHorizontalFTick();
             CastGroundFTick();
-            //move character
             
+            //move character
             var delta = (Vector3)(RealVelocity * Time.deltaTime);
             transform.position = transform.position + delta;
         }
@@ -180,7 +180,6 @@ namespace BloopsPlatform
 
         public void Move(float horizontal)
         {
-            
             _desiredVelocity = new Vector2(horizontal*Mathf.Max(maxHorizontalSpeed-CurrentGroundFriction),_desiredVelocity.y);
         }
 
@@ -220,9 +219,12 @@ namespace BloopsPlatform
         {
             //press jump button, or pressed within jumpBuffer window
             //|| (Grounded && _pressingJump && timeSincePressedJump < jumpBuffer)
+            //todo: replace Grounded with grounded = grounded or coyote time.
+            //todo: replace tryJump with tryJump or jumpBuffer.
             if (tryJump)
             {
-                if(canWallJump && !Grounded){
+                if(canWallJump && !Grounded)
+                {
                     if (wallClingingLeft)
                     {
                         jumps = 1;//reset to 0, as if grounded, then +1
@@ -242,7 +244,7 @@ namespace BloopsPlatform
                         var jumpVector = new Vector2(-1,1).normalized * jumpForce * wallJumpForceModifier;
                         SetVelocity(new Vector2(jumpVector.x, jumpVector.y));
                         return;
-                    }//else...
+                    }
                 }
                 //on the ground, or in the air with jumps, or in the air within coyote time.
                 //|| (!tryJump && !Grounded && _pressingJump && timeSinceLeftGround < coyoteTime)
@@ -258,7 +260,6 @@ namespace BloopsPlatform
                     SetVerticalVelocity(jumpForce);
                 }
             }
-            
 
             if (Grounded)
             {
@@ -286,7 +287,6 @@ namespace BloopsPlatform
         //Desired Horizontal
         private void ApplyDesired()
         {
-            
             //Horizontal
             float acceleration;
             if (Grounded)
@@ -302,7 +302,6 @@ namespace BloopsPlatform
             
             //Todo: Factor in friction
             //we can get friction from downCaster.Friction, which will be recently set if grounded is true
-            
             
             //Set horizontal component
             SetHorizontalVelocity(Mathf.MoveTowards(Velocity.x, _desiredVelocity.x, delta));
@@ -479,14 +478,21 @@ namespace BloopsPlatform
 
         void CastGroundFTick()
         {
-            //Todo: Calculate the from/to dependent on current desiredDirection/velocity. 
-            //This will mean that the last, saved, MovingPlatform will be your 'front foot' for stepping onto movingPlatforms
+            //from/to stuff is so that the last, (results saved), MovingPlatform will be your 'front foot' for stepping onto movingPlatforms.
             
             var dir = Vector2.down;
             float touchDistance = 0.001f;//todo: make field.
             var bottomLeft = movementShape.BottomLeft()+-dir*skinWidth + Vector2.right* verticalCastPadding;
             var bottomRight = movementShape.BottomRight()+ -dir * skinWidth - Vector2.right* verticalCastPadding;
-            bool down = downCaster.ArrayRaycast(dir, bottomLeft, bottomRight, (Mathf.Max(Mathf.Abs(RealVelocity.y) * Time.deltaTime,touchDistance) ) +skinWidth);
+            var fromPos = bottomLeft;
+            var toPos = bottomRight;
+            if (Velocity.x < 0)
+            {
+                fromPos = bottomRight;
+                toPos = bottomLeft;
+            }
+            
+            bool down = downCaster.ArrayRaycast(dir, fromPos, toPos, (Mathf.Max(Mathf.Abs(RealVelocity.y) * Time.deltaTime,touchDistance) ) +skinWidth);
             
             if (down && Velocity.y < 0)
             {
