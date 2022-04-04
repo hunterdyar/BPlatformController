@@ -64,7 +64,7 @@ namespace BloopsPlatform
         public bool Grounded { get; private set; }
         public Vector2 Velocity { get; private set; }
         private Vector2 _desiredVelocity;
-        private bool wallClinging => wallClingingLeft || wallClingingRight;
+        private bool wallClinging => (wallClingingLeft || wallClingingRight);
         private float CurrentGroundFriction => Grounded ? downCaster.Friction : 0;
 
         private IMovingPlatform _movingPlatform;
@@ -232,6 +232,7 @@ namespace BloopsPlatform
                         //todo: Give the user control over this. One vector for fixed angle, one for modifier on jumpForce.
                         var jumpVector = Vector2.one.normalized*jumpForce*wallJumpForceModifier;//do the hard math for me. This can be calculated ahead of time. its like .707 or such, some trig.
                        SetVelocity(new Vector2(jumpVector.x, jumpVector.y));
+                       return;
                     }else if (wallClingingRight)
                     {
                         jumps = 1;//reset to 0, then +1
@@ -240,6 +241,7 @@ namespace BloopsPlatform
                         Grounded = false;
                         var jumpVector = new Vector2(-1,1).normalized * jumpForce * wallJumpForceModifier;
                         SetVelocity(new Vector2(jumpVector.x, jumpVector.y));
+                        return;
                     }//else...
                 }
                 //on the ground, or in the air with jumps, or in the air within coyote time.
@@ -255,7 +257,6 @@ namespace BloopsPlatform
                     //jump
                     SetVerticalVelocity(jumpForce);
                 }
-
             }
             
 
@@ -345,14 +346,21 @@ namespace BloopsPlatform
             }
             else if(Velocity.y < 0)
             {
-
                 g *= downwardsGravityModifier;
 
-                if (wallClinging)
+                if (wallClinging)//wallClinging
                 {
                     //Get wall friction.
-                    float friction = wallClingingLeft ? leftCaster.Friction : rightCaster.Friction;
-                    //when no friction, we don't change g. When 1 friction, we use wall cling modifier.
+                    float friction = 1;
+                    if (wallClingingLeft)
+                    {
+                        friction = leftCaster.Friction;
+                    }else if (wallClingingRight)
+                    {
+                        friction = rightCaster.Friction;
+                    }
+
+                    //0 wall friction = normal gravity. 1 wall friction = full wall cling gravity.
                     g *= Mathf.Lerp(1,wallClingingGravityModifier,friction);
                 }
                 else
@@ -362,7 +370,8 @@ namespace BloopsPlatform
                     // g *= downwardsGravityModifier;
                 }
             }
-            return Vector2.up * g;//we write gravity as "-" because that makes sense. so "up" is positive 1 times the negative number, g
+            
+            return Vector2.up * g;//we write gravity as "-" because that makes sense. so "up" is positive 1 times the negative number. g
         }
 
         private void UpdateBounds()
@@ -371,20 +380,20 @@ namespace BloopsPlatform
         }
 
         #region Collisions
-
         
-
         void CastHorizontalFTick()
         {
+            float touchDistance = 0.01f;
             _cantGoFurtherRightThisFrame = false;
             _cantGoFurtherLeftThisFrame = false;
+            
             var dir = Vector2.right;
             //todo: cache these
             var lipDown = Vector2.down * lipHeight;
             var lipUp = Vector2.up * lipHeight;
             
             //From top to bottom, so the last raycast is the Normal that we can grab for going up a slope.
-            bool right = rightCaster.ArrayRaycast(dir, movementShape.TopRight() + -dir * skinWidth+lipDown, movementShape.BottomRight() + -dir * skinWidth + lipUp, Mathf.Max(RealVelocity.x,0) * Time.deltaTime + skinWidth);
+            bool right = rightCaster.ArrayRaycast(dir, movementShape.TopRight() + -dir * skinWidth+lipDown, movementShape.BottomRight() + (-dir * skinWidth) + lipUp, Mathf.Max(RealVelocity.x * Time.deltaTime,touchDistance)  + skinWidth);
             if (!right)
             {
                 wallClingingRight = false;
@@ -403,32 +412,31 @@ namespace BloopsPlatform
                 //Shift left out of wall.
                 transform.position = new Vector3(leftPoint - movementShape.extents.x, transform.position.y, transform.position.z);
                 UpdateBounds();
-                WallCling();
                 SetHorizontalVelocity(0);
+                WallCling();
+
                 var hitWallVel = rightCaster.MovingPlatform?.GetVelocity() ?? Vector2.zero;
-                //the wall is moving towards us. It should push us, which it can do by moving us by its velocity.
+                //the wall is moving towards us (todo: uh, should this be 0 or... the difference between it and our horizontal velocity?
+                //It should push us, which it can do by moving us by its velocity.
                 if (hitWallVel.x < 0){
                     adoptedVel = new Vector2(hitWallVel.x, adoptedVel.y); //we cant move horizontally, because of horizontal collision, but we can still adopt a moving platforms velocity.
                 }
-                else//the wall is moving away from us.
+                else//away from us or not moving/not a moving platform
                 {
-                    if (wallClinging)
+                    if (wallClingingRight)
                     {
                         adoptedVel = new Vector2(hitWallVel.x, adoptedVel.y); //we cant move horizontally, because of horizontal collision, but we can still adopt a moving platforms velocity.
-
                     }
                     else
                     {
                         adoptedVel = new Vector2(0, adoptedVel.x);
                     }
                 }
-
-            //todo: set movingPlatform correctly
             }
-
+            
             //We copy and paste the above and below, because we want to be able to jump up and have a moving platform get us from behind, so the code will need all directions.
             dir = Vector2.left;
-            bool left = leftCaster.ArrayRaycast(dir, movementShape.TopLeft() + -dir * skinWidth + lipDown, movementShape.BottomLeft() + -dir * skinWidth + lipUp, Mathf.Min(RealVelocity.x,0)*Time.deltaTime + skinWidth);
+            bool left = leftCaster.ArrayRaycast(dir, movementShape.TopLeft() + -dir * skinWidth + lipDown, movementShape.BottomLeft() + (-dir * skinWidth) + lipUp, Mathf.Max(Mathf.Abs(RealVelocity.x) * Time.deltaTime,touchDistance) + skinWidth);
 
             if (!left)
             {
@@ -444,8 +452,9 @@ namespace BloopsPlatform
                 float rightPoint = leftCaster.ResultsPointMaxX;
                 transform.position = new Vector3(rightPoint + movementShape.extents.x, transform.position.y, transform.position.z);
                 UpdateBounds();
+                SetHorizontalVelocity(0);
                 WallCling();
-                SetHorizontalVelocity(0);//Stop horizontal Movement
+                
                 var hitWallVel = leftCaster.MovingPlatform?.GetVelocity() ?? Vector2.zero;
                 //Get pushed by wall.
                 if (hitWallVel.x > 0)
@@ -454,17 +463,15 @@ namespace BloopsPlatform
                 }
                 else
                 {
-                    if (wallClinging)
+                    if (wallClingingLeft)
                     {
                         adoptedVel = new Vector2(hitWallVel.x, adoptedVel.y);
-
                     }
                     else
                     {
                         adoptedVel = new Vector2(0, adoptedVel.x);
                     }
                 }
-
             }
             
             //todo: Deal with slopes.
@@ -476,9 +483,10 @@ namespace BloopsPlatform
             //This will mean that the last, saved, MovingPlatform will be your 'front foot' for stepping onto movingPlatforms
             
             var dir = Vector2.down;
+            float touchDistance = 0.001f;//todo: make field.
             var bottomLeft = movementShape.BottomLeft()+-dir*skinWidth + Vector2.right* verticalCastPadding;
             var bottomRight = movementShape.BottomRight()+ -dir * skinWidth - Vector2.right* verticalCastPadding;
-            bool down = downCaster.ArrayRaycast(dir, bottomLeft, bottomRight, (Mathf.Max(RealVelocity.y,0) * Time.deltaTime) +skinWidth);
+            bool down = downCaster.ArrayRaycast(dir, bottomLeft, bottomRight, (Mathf.Max(Mathf.Abs(RealVelocity.y) * Time.deltaTime,touchDistance) ) +skinWidth);
             
             if (down && Velocity.y < 0)
             {
@@ -524,7 +532,8 @@ namespace BloopsPlatform
             var dir = Vector2.up;
             var topLeft = movementShape.TopLeft() + -dir * skinWidth + Vector2.right * verticalCastPadding;
             var topRight = movementShape.TopRight() + -dir * skinWidth - Vector2.right * verticalCastPadding;
-            bool up = downCaster.ArrayRaycast(dir, topLeft, topRight, (Mathf.Max(0,RealVelocity.y) * Time.deltaTime + skinWidth));
+            float touchDistance = 0.001f;
+            bool up = downCaster.ArrayRaycast(dir, topLeft, topRight, (Mathf.Max(touchDistance,Mathf.Abs(RealVelocity.y * Time.deltaTime))  + skinWidth));
 
             if (up && Velocity.y > 0)
             {
@@ -548,15 +557,14 @@ namespace BloopsPlatform
 
         void WallCling()
         {
-            //Do nothing! todo: something!
             SetHorizontalVelocity(0);
 
-            
-            if (_desiredVelocity.x < -Mathf.Epsilon)
+            //mathf.e not working right, trying larger 'small' number -_-
+            if (_desiredVelocity.x < -0.1f)
             {
                 wallClingingLeft = true;
                 //wall cling left. 
-            }else if (_desiredVelocity.x > Mathf.Epsilon)
+            }else if (_desiredVelocity.x > 0.1f)
             {
                 wallClingingRight = true;
                 //wall cling right.

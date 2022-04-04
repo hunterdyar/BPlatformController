@@ -766,7 +766,7 @@ MonoBehaviour:
   jumpHeldGravityModifier: 0.8
   canWallJump: 1
   wallJumpForceModifier: 0.707
-  wallClingingGravityModifier: 0.5
+  wallClingingGravityModifier: 0.1
   coyoteTime: 0
   jumpBuffer: 1
   maxHorizontalSpeed: 15
